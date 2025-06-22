@@ -3,14 +3,15 @@ INCLUDE TASMLIB.inc
 .STACK 100h             
 
 .DATA
-
-    MIDDLE_LINE     dw   200
-    PADDLE_SIZE     dw   40
-    PADDLE_LEFT_X   dw   1
-    PADDLE_RIGHT_X  dw   318
-    PADDLE_TOP      dw   1
-    PADDLE_MID      dw   90
-    PADDLE_BOTTOM   dw   187
+    ;coordenadas de los paddles
+    PADDLE_LEFT_X   dw   40
+    PADDLE_LEFT_Y   dw   90
+    PADDLE_RIGHT_X  dw   590
+    PADDLE_RIGHT_Y  dw   400
+    ;limites para los paddles
+    PADDLE_TOP      dw   40
+    PADDLE_MID      dw   200
+    PADDLE_BOTTOM   dw   400
 
     BALL_X_R        dw   30
     BALL_X_L        dw   610
@@ -25,16 +26,20 @@ INCLUDE TASMLIB.inc
     color           DB   0Ch   
 
     ball_dx         db 1     ; Direcci?n horizontal: +1 o -1
-    ball_dy      db 1     ; Direcci?n vertical: +1 o -1    
+    ball_dy         db 1     ; Direcci?n vertical: +1 o -1    
     
     screen_width    dw   640
-    paddle_right_y  dw   90
-    paddle_left_y   dw   90
     ball_x          dw   160
     ball_y          dw   200
-    ;color           dw   5
+    ;mensajes del menu principal
     MSG             DB   "--Ping Pong--", '$'
+    one_player      DB   "One player",'$'
+    two_player      DB   "Two players",'$'
     salida          DB   "salir(f12)",'$'
+    ;eleccion de partida
+    saved_game      DB   "Partida guardada",'$'
+    new_game        DB   "Nuevo juego",'$'
+    ;mensajes de la pantalla de juego
     score           DB   "score:"," ",'$'
     P1              DB   "P1:","0000",'$'
     P2              DB   "P2:","0000",'$'
@@ -47,11 +52,34 @@ MAIN PROC
     MOV DS, AX
 
     SET_VIDEO_MODE 12h
-    SET_BACKGROUND_COLOR_12H 1      ;fondo azul
+    SET_BACKGROUND_COLOR_12H 00h      ;fondo azul
     
-    CALL TWO_PLAYER_SCREEN
+menu:
+    CALL imprimir_titulo
+    CHECK_KEY 0Dh, eleccion    
+    JMP menu
+    
+eleccion:
+    call imprimir_menu_sec
+    CHECK_KEY 31h, one
+    CHECK_KEY 32h, two
+    JMP eleccion
+one:  
+     
+    CALL SINGLE_PLAYER_SCREEN
+    DRAW_FILLED_BOX  PADDLE_LEFT_X,PADDLE_MID,10,40,0FH
+    DRAW_FILLED_BOX  PADDLE_RIGHT_X,PADDLE_MID,10,40,0FH
     CALL DRAW_BALL
+two:    
+    CALL TWO_PLAYER_SCREEN
+    DRAW_FILLED_BOX  PADDLE_LEFT_X,PADDLE_MID,10,40,0FH
+    DRAW_FILLED_BOX  PADDLE_RIGHT_X,PADDLE_MID,10,40,0FH
+    CALL DRAW_BALL
+        
+JUEGO:   ;ciclo principal
     
+    JMP JUEGO
+salir:
     WAIT_KEY 07                     ;espera la tecla f12 para salir    
     SET_VIDEO_MODE 12h
     SET_BACKGROUND_COLOR_12H 1      ;vuelve a colocar la pantalla en azul
@@ -194,81 +222,94 @@ delay_loop:
     loop delay_loop
 
     JMP MOVEMENT_BALL
-
 RET
 DRAW_BALL ENDP
-
-; Supuestos: 
-;   - box_begin_x, box_begin_y son las coordenadas del cuadro actual de la bola.
-;   - ball_dx y ball_dy controlan la direcci?n.
-;   - Los bordes son: X = [30, 580], Y = [40, 400]
-
-move_ball_auto PROC
-    push ax bx cx dx
-
-    ; 1. Borrar la bola anterior (color fondo)
-    mov ax, [box_begin_y]
-    mov bx, [box_begin_x]
-    mov dl, 0   ; color negro
-    call draw_filled_ball
-
-    ; 2. Calcular nueva posici?n
-    mov al, [ball_dx]
-    cbw
-    add [box_begin_x], ax
-
-    mov al, [ball_dy]
-    cbw
-    add [box_begin_y], ax
-
-    ; 3. Verificar colisi?n con l?mites horizontales
-    mov ax, [box_begin_x]
-    cmp ax, 36
-    jge not_left
-    neg [ball_dx]
-    mov [box_begin_x], 36
-not_left:
-    cmp ax, 610
-    jle not_right
-    neg [ball_dx]
-    mov [box_begin_x], 610
-not_right:
-
-    ; 4. Verificar colisi?n con l?mites verticales
-    mov ax, [box_begin_y]
-    cmp ax, 46
-    jge not_top
-    neg [ball_dy]
-    mov [box_begin_y], 46
-not_top:
-    cmp ax, 440
-    jle not_bottom
-    neg [ball_dy]
-    mov [box_begin_y], 440
-not_bottom:
-
-    ; 5. Dibujar bola nueva
-    mov ax, [box_begin_y]
-    mov bx, [box_begin_x]
-    mov dl, 0Ch ; color rojo
-    call draw_filled_ball
-
-    ; 6. Retardo simple
-    mov cx, 0FFFFh
-delay_loop_1:
-    nop
-    loop delay_loop_1
-
-    pop dx cx bx ax
-    ret
-    move_ball_auto ENDP
     
 draw_filled_ball PROC
 
-DRAW_FILLED_BOX box_begin_x, box_begin_y, 7, 7, 0
+    DRAW_FILLED_BOX box_begin_x, box_begin_y, 7, 7, 0
     CALL draw_circle
+    RET
+    
+draw_filled_ball ENDP
+
+
+draw_paddle_left PROC
+
+   DRAW_FILLED_BOX  PADDLE_LEFT_X,PADDLE_MID,10,40,0FH
 
 RET
-draw_filled_ball ENDP
+draw_paddle_left ENDP
+
+draw_paddle_right PROC
+
+   DRAW_FILLED_BOX  PADDLE_RIGHT_X,PADDLE_MID,10,40,0FH
+
+RET
+draw_paddle_right ENDP
+
+imprimir_menu PROC
+
+    PRINT_STRING 10,20,MSG,6
+    PRINT_STRING 14,20,one_player,6
+    PRINT_STRING 18,20,two_player,6
+    PRINT_STRING 22,20,salida,6
+
+RET
+imprimir_menu ENDP
+
+imprimir_menu_sec PROC
+
+    PRINT_STRING 14,20,saved_game,6
+    PRINT_STRING 18,20,new_game,6
+
+RET
+imprimir_menu_sec ENDP
+
+imprimir_titulo PROC
+    ;P
+    DRAW_FILLED_BOX 24, 210, 16, 80, 0Ah
+    DRAW_FILLED_BOX 56, 210, 16, 48, 0Ah
+    DRAW_FILLED_BOX 40, 210, 16, 16, 0Ah
+    DRAW_FILLED_BOX 40, 242, 16, 16, 0Ah
+    ;I
+    DRAW_FILLED_BOX 88, 210, 16, 80, 0Ah
+    ;N
+    DRAW_FILLED_BOX 120, 210, 16, 80, 0Ah
+    DRAW_FILLED_BOX 168, 210, 16, 80, 0Ah
+    DRAW_FILLED_BOX 136, 226, 16, 32, 0Ah
+    DRAW_FILLED_BOX 152, 258, 16, 16, 0Ah
+    ;G
+    DRAW_FILLED_BOX 200, 210, 16, 80, 0Ah
+    DRAW_FILLED_BOX 216, 210, 48, 16, 0Ah
+    DRAW_FILLED_BOX 216, 274, 48, 16, 0Ah
+    DRAW_FILLED_BOX 248, 242, 16, 32, 0Ah
+    DRAW_FILLED_BOX 232, 242, 16, 16, 0Ah
+    ;-
+    DRAW_FILLED_BOX 280, 242, 48, 16, 0Ah
+    ;P
+    DRAW_FILLED_BOX 344, 210, 16, 80, 0Ah
+    DRAW_FILLED_BOX 376, 210, 16, 48, 0Ah
+    DRAW_FILLED_BOX 360, 210, 16, 16, 0Ah
+    DRAW_FILLED_BOX 360, 242, 16, 16, 0Ah
+    ;O
+    DRAW_FILLED_BOX 408, 210, 16, 80, 0Ah
+    DRAW_FILLED_BOX 440, 210, 16, 80, 0Ah
+    DRAW_FILLED_BOX 424, 210, 16, 16, 0Ah
+    DRAW_FILLED_BOX 424, 274, 16, 16, 0Ah
+    ;N
+    DRAW_FILLED_BOX 472, 210, 16, 80, 0Ah
+    DRAW_FILLED_BOX 520, 210, 16, 80, 0Ah
+    DRAW_FILLED_BOX 488, 226, 16, 32, 0Ah
+    DRAW_FILLED_BOX 504, 258, 16, 16, 0Ah
+    ;G
+    DRAW_FILLED_BOX 552, 210, 16, 80, 0Ah
+    DRAW_FILLED_BOX 568, 210, 48, 16, 0Ah
+    DRAW_FILLED_BOX 568, 274, 48, 16, 0Ah
+    DRAW_FILLED_BOX 600, 242, 16, 32, 0Ah
+    DRAW_FILLED_BOX 584, 242, 16, 16, 0Ah
+
+RET
+imprimir_titulo ENDP
 
 END MAIN
