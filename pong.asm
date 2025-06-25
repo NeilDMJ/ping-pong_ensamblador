@@ -3,12 +3,15 @@ INCLUDE TASMLIB.inc
 .STACK 100h             
 
 .DATA
+    AREA_TOP        dw   47   ; L?mite superior (Y m?nimo)
+    AREA_BOTTOM     dw   430  ; L?mite inferior (Y m?ximo)
+    AREA_LEFT       dw   37   ; L?mite izquierdo (X m?nimo)
+    AREA_RIGHT      dw   600  ; L?mite derecho (X m?ximo)
     ;coordenadas de los paddles
     PADDLE_LEFT_X   dw   40
     PADDLE_LEFT_Y   dw   90
     PADDLE_RIGHT_X  dw   590
     PADDLE_RIGHT_Y  dw   400
-    ;limites para los paddles
     PADDLE_TOP      dw   40
     PADDLE_MID      dw   200
     PADDLE_BOTTOM   dw   400
@@ -36,21 +39,28 @@ INCLUDE TASMLIB.inc
     ;eleccion de partida
     saved_game      DB   "Partida guardada",'$'
     new_game        DB   "Nuevo juego",'$'
+    game_mode       db   1
     ;mensajes de la pantalla de juego
     score           DB   "score:"," ",'$'
-    P1              DB   "P1:","0000",'$'
-    P2              DB   "P2:","0000",'$'
-    PA              DB   "PA:","0000",'$'
+    P1              DB   "P1:",'$'
+    P2              DB   "P2:",'$'
+    PA              DB   "PA:",'$'
+    score_P1      dw 0
+    score_P2      dw 0
+    score_PA      dw 0
+    str_score_P1  db "0000$"   ; Cadena para P1
+    str_score_P2  db "0000$"   ; Cadena para P2
+    str_score_PA  db "0000$"   ; Cadena para PA
     ;timer
     Time            db   'Tiempo: ', '$'
     str_seg         db   '000$'      ; Cadena para mostrar segundos
-    start_secs      DW   180         ; Duraci?n inicial (segundos)
+    start_secs      DW   180         ; Duracion inicial (segundos)
     current_secs    DW   ?
     prev_sec        DB   ?
     msg_done        DB   'Tiempo agotado!$'
-    last_cent      DB 0     ; ?ltima cent?sima registrada
-    ball_speed     DB 5     ; Velocidad de la bola (cada 5 cent?simas)
-    accum_cent     DB 0
+    last_cent       DB   0     ; ultima centesima registrada
+    ball_speed      DB   5     ; Velocidad de la bola (cada 5 cent?simas)
+    accum_cent      DB   0
     
 .CODE
 MAIN PROC
@@ -58,7 +68,7 @@ MAIN PROC
     MOV DS, AX
 
     SET_VIDEO_MODE 12h
-    SET_BACKGROUND_COLOR_12H 00h      ;fondo azul
+    SET_BACKGROUND_COLOR_12H 00h      ;fondo negro
     
 menu:
     CALL imprimir_titulo
@@ -120,7 +130,7 @@ JUEGO:
     MOV prev_sec, DH
     DEC current_secs
 
-; Comprobar si el tiempo se agot?
+    ; Comprobar si el tiempo se agoto
     CMP current_secs, 0
     JG update_timer_display
 ; Tiempo agotado
@@ -135,34 +145,107 @@ update_timer_display:
     PRINT_STRING 28, 72, str_seg, 6
 
 no_sec_change:   ;ciclo principal
-
+    PRINT_STRING 1,4,P1,6
+    PRINT_STRING 1,69,PA,6
     MOV [color], 0       ; Color negro (borrar)
     CALL draw_filled_ball
-
+    
     ; Actualizar posici?n X (con extensi?n de signo correcta)
     MOV AL, ball_dx      ; Cargar direcci?n X en AL
     CBW                  ; Extender signo de AL a AX
     ADD ball_x, AX       ; Mover la bola en X
-
+    
     ; Actualizar posici?n Y (con extensi?n de signo correcta)
     MOV AL, ball_dy      ; Cargar direcci?n Y en AL
     CBW                  ; Extender signo de AL a AX
     ADD ball_y, AX       ; Mover la bola en Y
-
+    
+    ; Verificar l?mites horizontales (X)
+    MOV AX, AREA_LEFT
+    CMP ball_x, AX
+    JL invertir_x_L        ; Si X < l?mite izquierdo, invertir direcci?n X
+    
+    MOV AX, AREA_RIGHT
+    CMP ball_x, AX
+    JG invertir_x_R        ; Si X > l?mite derecho, invertir direcci?n X
+    
+    ; Verificar l?mites verticales (Y)
+    MOV AX, AREA_TOP
+    CMP ball_y, AX
+    JL invertir_y        ; Si Y < l?mite superior, invertir direcci?n Y
+    
+    MOV AX, AREA_BOTTOM
+    CMP ball_y, AX
+    JG invertir_y        ; Si Y > l?mite inferior, invertir direcci?n Y
+    
+    JMP actualizar_dibujo
+    
+invertir_x_L:
+    NEG ball_dx
+    ; Incrementar puntuaci?n P1
+    INC score_P1
+    ; Convertir y actualizar cadena
+    MOV AX, score_P1
+    LEA DI, str_score_P1
+    CALL CONVERT_SCORE
+    ; Restablecer posici?n
+    MOV ball_x, 320
+    MOV ball_y, 210
+    WAIT_KEY 0DH
+    JMP actualizar_dibujo
+    
+invertir_x_R:
+    invertir_x_R:
+    NEG ball_dx
+    ; Incrementar puntuaci?n PA/P2 seg?n modo
+    CMP game_mode, 1
+    JE incrementar_PA
+    INC score_P2
+    MOV AX, score_P2
+    LEA DI, str_score_P2
+    JMP actualizar_score
+    incrementar_PA:
+    INC score_PA
+    MOV AX, score_PA
+    LEA DI, str_score_PA
+actualizar_score:
+    CALL CONVERT_SCORE
+    ; Restablecer posici?n
+    MOV ball_x, 320
+    MOV ball_y, 210
+    WAIT_KEY 0DH
+    JMP actualizar_dibujo
+    
+invertir_y:
+    NEG ball_dy          ; Invertir direcci?n vertical
+    
+actualizar_dibujo:
     ; Actualizar coordenadas de dibujo
     MOV AX, ball_x
     MOV center_x, AX
     SUB AX, 3
     MOV box_begin_x, AX
-
+    
     MOV AX, ball_y
     MOV center_y, AX
     SUB AX, 3
     MOV box_begin_y, AX
-
+    
     MOV [color], 0Ch     ; Color rojo (dibujar)
     CALL draw_filled_ball
+    PRINT_STRING 1,4,P1,6
+    PRINT_STRING 1,4+3,str_score_P1,6  ; Imprimir puntuaci?n P1
     
+    CMP game_mode, 1
+    JE modo_single
+    ; Modo dos jugadores
+    PRINT_STRING 1,69,P2,6
+    PRINT_STRING 1,69+3,str_score_P2,6
+    JMP after_scores
+modo_single:
+    PRINT_STRING 1,69,PA,6
+    PRINT_STRING 1,69+3,str_score_PA,6
+after_scores:
     JMP JUEGO
 salir:
     WAIT_KEY 07                     ;espera la tecla f12 para salir    
@@ -354,6 +437,23 @@ convert_loop:
     POP DI SI DX CX BX AX
     RET
 CONVERT_TO_STRING ENDP
+
+; Convierte n?mero en AX a cadena de 4 d?gitos en DI
+CONVERT_SCORE PROC
+    PUSH BX CX DX SI DI
+    ADD DI, 3            ; Empezar desde el ?ltimo d?gito
+    MOV CX, 4            ; 4 d?gitos
+    MOV BX, 10
+convert_loop_1:
+    XOR DX, DX
+    DIV BX               ; DX:AX / BX -> AX=cociente, DX=resto
+    ADD DL, '0'          ; Convertir a ASCII
+    MOV [DI], DL
+    DEC DI
+    LOOP convert_loop_1
+    POP DI SI DX CX BX
+    RET
+CONVERT_SCORE ENDP
 
 imprimir_titulo PROC
     ;P

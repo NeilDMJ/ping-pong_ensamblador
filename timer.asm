@@ -3,12 +3,15 @@ INCLUDE TASMLIB.inc
 .STACK 100h             
 
 .DATA
+    AREA_TOP        dw   47   ; L?mite superior (Y m?nimo)
+    AREA_BOTTOM     dw   430  ; L?mite inferior (Y m?ximo)
+    AREA_LEFT       dw   37   ; L?mite izquierdo (X m?nimo)
+    AREA_RIGHT      dw   600  ; L?mite derecho (X m?ximo)
     ;coordenadas de los paddles
     PADDLE_LEFT_X   dw   40
     PADDLE_LEFT_Y   dw   90
     PADDLE_RIGHT_X  dw   590
     PADDLE_RIGHT_Y  dw   400
-    ;limites para los paddles
     PADDLE_TOP      dw   40
     PADDLE_MID      dw   200
     PADDLE_BOTTOM   dw   400
@@ -44,13 +47,13 @@ INCLUDE TASMLIB.inc
     ;timer
     Time            db   'Tiempo: ', '$'
     str_seg         db   '000$'      ; Cadena para mostrar segundos
-    start_secs      DW   180         ; Duraci?n inicial (segundos)
+    start_secs      DW   180         ; Duracion inicial (segundos)
     current_secs    DW   ?
     prev_sec        DB   ?
     msg_done        DB   'Tiempo agotado!$'
-    last_cent      DB 0     ; ?ltima cent?sima registrada
-    ball_speed     DB 5     ; Velocidad de la bola (cada 5 cent?simas)
-    accum_cent     DB 0
+    last_cent       DB   0     ; ultima centesima registrada
+    ball_speed      DB   5     ; Velocidad de la bola (cada 5 cent?simas)
+    accum_cent      DB   0
     
 .CODE
 MAIN PROC
@@ -58,7 +61,7 @@ MAIN PROC
     MOV DS, AX
 
     SET_VIDEO_MODE 12h
-    SET_BACKGROUND_COLOR_12H 00h      ;fondo azul
+    SET_BACKGROUND_COLOR_12H 00h      ;fondo negro
     
 menu:
     CALL imprimir_titulo
@@ -120,7 +123,7 @@ JUEGO:
     MOV prev_sec, DH
     DEC current_secs
 
-; Comprobar si el tiempo se agot?
+    ; Comprobar si el tiempo se agoto
     CMP current_secs, 0
     JG update_timer_display
 ; Tiempo agotado
@@ -135,9 +138,75 @@ update_timer_display:
     PRINT_STRING 28, 72, str_seg, 6
 
 no_sec_change:   ;ciclo principal
-
+    PRINT_STRING 1,4,P1,6
+    PRINT_STRING 1,69,PA,6
+    MOV [color], 0       ; Color negro (borrar)
+    CALL draw_filled_ball
     
+    ; Actualizar posici?n X (con extensi?n de signo correcta)
+    MOV AL, ball_dx      ; Cargar direcci?n X en AL
+    CBW                  ; Extender signo de AL a AX
+    ADD ball_x, AX       ; Mover la bola en X
     
+    ; Actualizar posici?n Y (con extensi?n de signo correcta)
+    MOV AL, ball_dy      ; Cargar direcci?n Y en AL
+    CBW                  ; Extender signo de AL a AX
+    ADD ball_y, AX       ; Mover la bola en Y
+    
+    ; Verificar l?mites horizontales (X)
+    MOV AX, AREA_LEFT
+    CMP ball_x, AX
+    JL invertir_x_L        ; Si X < l?mite izquierdo, invertir direcci?n X
+    
+    MOV AX, AREA_RIGHT
+    CMP ball_x, AX
+    JG invertir_x_R        ; Si X > l?mite derecho, invertir direcci?n X
+    
+    ; Verificar l?mites verticales (Y)
+    MOV AX, AREA_TOP
+    CMP ball_y, AX
+    JL invertir_y        ; Si Y < l?mite superior, invertir direcci?n Y
+    
+    MOV AX, AREA_BOTTOM
+    CMP ball_y, AX
+    JG invertir_y        ; Si Y > l?mite inferior, invertir direcci?n Y
+    
+    JMP actualizar_dibujo
+    
+invertir_x_L:
+    NEG ball_dx          ; Invertir direcci?n horizontal
+    INC [P1+6]
+    MOV ball_x, 320      
+    MOV ball_y, 210
+    WAIT_KEY 0DH    
+    JMP actualizar_dibujo
+    
+invertir_x_R:
+    NEG ball_dx          ; Invertir direcci?n horizontal
+    INC [P2+6]
+    INC [PA+6]
+    MOV ball_x, 320      
+    MOV ball_y, 210
+    WAIT_KEY 0DH
+    JMP actualizar_dibujo
+    
+invertir_y:
+    NEG ball_dy          ; Invertir direcci?n vertical
+    
+actualizar_dibujo:
+    ; Actualizar coordenadas de dibujo
+    MOV AX, ball_x
+    MOV center_x, AX
+    SUB AX, 3
+    MOV box_begin_x, AX
+    
+    MOV AX, ball_y
+    MOV center_y, AX
+    SUB AX, 3
+    MOV box_begin_y, AX
+    
+    MOV [color], 0Ch     ; Color rojo (dibujar)
+    CALL draw_filled_ball
     JMP JUEGO
 salir:
     WAIT_KEY 07                     ;espera la tecla f12 para salir    
