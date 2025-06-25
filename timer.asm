@@ -136,32 +136,7 @@ update_timer_display:
 
 no_sec_change:   ;ciclo principal
 
-    MOV [color], 0       ; Color negro (borrar)
-    CALL draw_filled_ball
-
-    ; Actualizar posici?n X (con extensi?n de signo correcta)
-    MOV AL, ball_dx      ; Cargar direcci?n X en AL
-    CBW                  ; Extender signo de AL a AX
-    ADD ball_x, AX       ; Mover la bola en X
-
-    ; Actualizar posici?n Y (con extensi?n de signo correcta)
-    MOV AL, ball_dy      ; Cargar direcci?n Y en AL
-    CBW                  ; Extender signo de AL a AX
-    ADD ball_y, AX       ; Mover la bola en Y
-
-    ; Actualizar coordenadas de dibujo
-    MOV AX, ball_x
-    MOV center_x, AX
-    SUB AX, 3
-    MOV box_begin_x, AX
-
-    MOV AX, ball_y
-    MOV center_y, AX
-    SUB AX, 3
-    MOV box_begin_y, AX
-
-    MOV [color], 0Ch     ; Color rojo (dibujar)
-    CALL draw_filled_ball
+    
     
     JMP JUEGO
 salir:
