@@ -335,16 +335,15 @@ CHECK_KEY MACRO keycode, handler
     mov ah, 00h
     int 16h
     
-    ; Comparar con el c?digo deseado
+    ; Comparar con el código deseado
     cmp al, keycode
     jne no_key
     
-    ; Tecla coincide - ejecutar handler
+    ; Si coincide, saltar al handler
     jmp handler
 
 no_key:
-    ; Continuar sin hacer nada
-    jmp exit_check
+    ; Continuar con la ejecución
     
 exit_check:
 ENDM

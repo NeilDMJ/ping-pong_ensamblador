@@ -15,6 +15,7 @@ INCLUDE TASMLIB.inc
     PADDLE_TOP      dw   40
     PADDLE_MID      dw   200
     PADDLE_BOTTOM   dw   400
+    paddle_speed  dw 7
     ;ball posicion y limites
     BALL_X_R        dw   30
     BALL_X_L        dw   610
@@ -39,7 +40,7 @@ INCLUDE TASMLIB.inc
     ;eleccion de partida
     saved_game      DB   "Partida guardada",'$'
     new_game        DB   "Nuevo juego",'$'
-    game_mode       db   1
+    game_mode       db   0
     ;mensajes de la pantalla de juego
     score           DB   "score:"," ",'$'
     P1              DB   "P1:",'$'
@@ -83,7 +84,7 @@ eleccion_1:
     CHECK_KEY 86h, menu
     JMP eleccion_1
 one:   
-    
+    MOV game_mode,1
     CALL SINGLE_PLAYER_SCREEN 
     MOV AX, start_secs
     MOV current_secs, AX
@@ -101,7 +102,8 @@ one:
     MOV ball_dy, 1       ; Velocidad vertical
     CALL DRAW_BALL       ; Dibujar bola inicial
     JMP JUEGO
-two:    
+two:
+    MOV game_mode,2
     CALL TWO_PLAYER_SCREEN  
     MOV AX, start_secs
     MOV current_secs, AX
@@ -145,8 +147,46 @@ update_timer_display:
     PRINT_STRING 28, 72, str_seg, 6
 
 no_sec_change:   ;ciclo principal
-    PRINT_STRING 1,4,P1,6
-    PRINT_STRING 1,69,PA,6
+    ; Detecci??n directa de teclas
+    MOV AH, 01h      ; Verificar si hay tecla
+    INT 16h
+    JZ no_keys       ; Si no hay tecla, saltar
+    
+    MOV AH, 00h      ; Obtener la tecla
+    INT 16h
+    
+    CMP AL, 'w'      ; Tecla W - paddle izquierdo arriba
+    JNE skip_move_left_up
+    JMP move_left_up
+skip_move_left_up:
+
+    CMP AL, 'W'      ; Tambi??n aceptar may??scula
+    JNE skip_move_left_up2
+    JMP move_left_up
+skip_move_left_up2:
+
+    CMP AL, 's'      ; Tecla S - paddle izquierdo abajo
+    JNE skip_move_left_down
+    JMP move_left_down
+skip_move_left_down:
+
+    CMP AL, 'S'      ; Tambi??n aceptar may??scula
+    JNE skip_move_left_down2
+    JMP move_left_down
+skip_move_left_down2:
+
+    CMP AH, 48h      ; Tecla flecha arriba (verificar scancode)
+    JNE skip_move_right_up
+    JMP move_right_up
+skip_move_right_up:
+
+    CMP AH, 50h              ; Tecla flecha abajo (verificar scancode)
+    JNE continue_keys        ; Si no es flecha abajo, continuar
+    JMP move_right_down      ; Salto incondicional (mayor alcance)
+continue_keys:           ; Nueva etiqueta
+
+no_keys:
+    ; Resto del c??digo de la bola...
     MOV [color], 0       ; Color negro (borrar)
     CALL draw_filled_ball
     
@@ -233,19 +273,93 @@ actualizar_dibujo:
     
     MOV [color], 0Ch     ; Color rojo (dibujar)
     CALL draw_filled_ball
-    PRINT_STRING 1,4,P1,6
-    PRINT_STRING 1,4+3,str_score_P1,6  ; Imprimir puntuaci?n P1
+    PRINT_STRING 1, 4, P1, 6
+    PRINT_STRING 1, 4+3, str_score_P1, 6  ; Imprimir puntuaci??n P1 
     
+    ; Agregar estas l??neas para mostrar el segundo marcador
     CMP game_mode, 1
-    JE modo_single
-    ; Modo dos jugadores
-    PRINT_STRING 1,69,P2,6
-    PRINT_STRING 1,69+3,str_score_P2,6
-    JMP after_scores
-modo_single:
-    PRINT_STRING 1,69,PA,6
-    PRINT_STRING 1,69+3,str_score_PA,6
-after_scores:
+    JE single_player_score
+    PRINT_STRING 1, 69, P2, 6
+    PRINT_STRING 1, 69+3, str_score_P2, 6  ; Modo 2 jugadores
+    JMP after_score
+single_player_score:
+    PRINT_STRING 1, 69, PA, 6
+    PRINT_STRING 1, 69+3, str_score_PA, 6  ; Modo 1 jugador
+after_score:
+    JMP after_paddle_move
+after_paddle_move:
+    JMP JUEGO
+move_left_up:
+    MOV AX, PADDLE_TOP
+    CMP PADDLE_LEFT_Y, AX
+    JLE after_paddle_move_1  ; Cambiar a after_paddle_move_1
+    
+    ; Borrar paleta
+    DRAW_FILLED_BOX PADDLE_LEFT_X, PADDLE_LEFT_Y, 10, 40, 0
+    
+    ; Mover
+    MOV AX, paddle_speed
+    SUB PADDLE_LEFT_Y, AX
+    
+    ; Dibujar
+    DRAW_FILLED_BOX PADDLE_LEFT_X, PADDLE_LEFT_Y, 10, 40, 0Fh
+    JMP after_paddle_move
+    
+after_paddle_move_1:        ; Renombrar esta etiqueta
+    JMP JUEGO
+move_left_down:
+    MOV AX, PADDLE_BOTTOM
+    SUB AX, 40
+    CMP PADDLE_LEFT_Y, AX
+    JGE after_paddle_move
+    
+    ; Borrar paleta
+    DRAW_FILLED_BOX PADDLE_LEFT_X, PADDLE_LEFT_Y, 10, 40, 0
+    
+    ; Mover
+    MOV AX, paddle_speed
+    ADD PADDLE_LEFT_Y, AX
+    
+    ; Dibujar
+    DRAW_FILLED_BOX PADDLE_LEFT_X, PADDLE_LEFT_Y, 10, 40, 0Fh
+    JMP after_paddle_move
+after_paddle_move_inter:
+    JMP after_paddle_move
+move_right_up:
+    MOV AX, PADDLE_TOP
+    CMP PADDLE_RIGHT_Y, AX
+    JG not_at_top_limit     ; Invertir la condici??n
+    JMP after_paddle_move_1 ; Salto directo si est?? en l??mite
+not_at_top_limit:
+    ; Borrar paleta
+    DRAW_FILLED_BOX PADDLE_RIGHT_X, PADDLE_RIGHT_Y, 10, 40, 0
+    
+    ; Mover
+    MOV AX, paddle_speed
+    SUB PADDLE_RIGHT_Y, AX
+    
+    ; Dibujar
+    DRAW_FILLED_BOX PADDLE_RIGHT_X, PADDLE_RIGHT_Y, 10, 40, 0Fh
+    JMP after_paddle_move
+
+move_right_down:
+    MOV AX, PADDLE_BOTTOM
+    SUB AX, 40
+    CMP PADDLE_RIGHT_Y, AX
+    JGE after_paddle_move_2
+    
+    ; Borrar paleta
+    DRAW_FILLED_BOX PADDLE_RIGHT_X, PADDLE_RIGHT_Y, 10, 40, 0
+    
+    ; Mover
+    MOV AX, paddle_speed
+    ADD PADDLE_RIGHT_Y, AX
+    
+    ; Dibujar
+    DRAW_FILLED_BOX PADDLE_RIGHT_X, PADDLE_RIGHT_Y, 10, 40, 0Fh
+    JMP after_paddle_move
+
+after_paddle_move_2:
     JMP JUEGO
 salir:
     WAIT_KEY 07                     ;espera la tecla f12 para salir    
