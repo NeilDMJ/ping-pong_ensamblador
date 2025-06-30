@@ -3,19 +3,19 @@ INCLUDE TASMLIB.inc
 .STACK 100h             
 
 .DATA
-    AREA_TOP        dw   47   ; L?mite superior (Y m?nimo)
-    AREA_BOTTOM     dw   430  ; L?mite inferior (Y m?ximo)
-    AREA_LEFT       dw   37   ; L?mite izquierdo (X m?nimo)
-    AREA_RIGHT      dw   600  ; L?mite derecho (X m?ximo)
+    AREA_TOP        dw   47   ; Limite superior (Y minimo)
+    AREA_BOTTOM     dw   430  ; Limite inferior (Y maximo)
+    AREA_LEFT       dw   37   ; Limite izquierdo (X minimo)
+    AREA_RIGHT      dw   600  ; Limite derecho (X maximo)
     ;coordenadas de los paddles
     PADDLE_LEFT_X   dw   40
-    PADDLE_LEFT_Y   dw   90
+    PADDLE_LEFT_Y   dw   200    ; Posicion Y inicial centrada
     PADDLE_RIGHT_X  dw   590
-    PADDLE_RIGHT_Y  dw   400
-    PADDLE_TOP      dw   40
+    PADDLE_RIGHT_Y  dw   200    ; Posicion Y inicial centrada
+    PADDLE_TOP      dw   38     ; Limite superior (borde verde interno + margen)
     PADDLE_MID      dw   200
-    PADDLE_BOTTOM   dw   400
-    paddle_speed  dw 7
+    PADDLE_BOTTOM   dw   442    ; Limite inferior  
+    paddle_speed  dw 8
     ;ball posicion y limites
     BALL_X_R        dw   30
     BALL_X_L        dw   610
@@ -34,370 +34,216 @@ INCLUDE TASMLIB.inc
     ball_x          dw   160
     ball_y          dw   200
     ;mensajes del menu principal
-    one_player      DB   "One player",'$'
-    two_player      DB   "Two players",'$'
-    salida          DB   "salir(f12)",'$'
-    ;eleccion de partida
-    saved_game      DB   "Partida guardada",'$'
-    new_game        DB   "Nuevo juego",'$'
-    game_mode       db   0
+    menu_title      DB   "PING-PONG GAME",'$'
+    start_game      DB   "Presiona ENTER para comenzar",'$'
+    salida          DB   "Presiona F12 para salir",'$'
+    controls        DB   "CONTROLES:",'$'
+    player1_ctrl    DB   "Jugador 1: W/S",'$'
+    player2_ctrl    DB   "Jugador 2: Flechas",'$'
+    game_mode       db   2
     ;mensajes de la pantalla de juego
     score           DB   "score:"," ",'$'
     P1              DB   "P1:",'$'
     P2              DB   "P2:",'$'
-    PA              DB   "PA:",'$'
-    score_P1      dw 0
-    score_P2      dw 0
-    score_PA      dw 0
-    str_score_P1  db "0000$"   ; Cadena para P1
-    str_score_P2  db "0000$"   ; Cadena para P2
-    str_score_PA  db "0000$"   ; Cadena para PA
+    score_P1        dw   0
+    score_P2        dw   0
+    str_score_P1    db   "0000$"   ; Cadena para P1
+    str_score_P2    db   "0000$"   ; Cadena para P2
     ;timer
     Time            db   'Tiempo: ', '$'
     str_seg         db   '000$'      ; Cadena para mostrar segundos
-    start_secs      DW   180         ; Duracion inicial (segundos)
+    start_secs      DW   60         ; Duracion inicial (segundos)
     current_secs    DW   ?
     prev_sec        DB   ?
     msg_done        DB   'Tiempo agotado!$'
     last_cent       DB   0     ; ultima centesima registrada
-    ball_speed      DB   5     ; Velocidad de la bola (cada 5 cent?simas)
+    ball_speed      DB   5     ; Velocidad de la bola (cada 5 centesimas)
     accum_cent      DB   0
     
+; ============================================================
+; PROGRAMA PRINCIPAL
+; ============================================================
 .CODE
 MAIN PROC
+    ; Inicializacion del programa
     MOV AX, @data
     MOV DS, AX
 
+    ; Establecer modo grafico VGA 640x480x16
     SET_VIDEO_MODE 12h
-    SET_BACKGROUND_COLOR_12H 00h      ;fondo negro
-    
+    SET_BACKGROUND_COLOR_12H 00h
+
+; ============================================================
+; PANTALLA DEL MENU PRINCIPAL
+; ============================================================
 menu:
+    ; Dibujar interfaz del menu
     CALL imprimir_titulo
-    CHECK_KEY 0Dh, eleccion    
-    JMP menu
-eleccion:
-    DRAW_FILLED_BOX 24, 210, 600, 80, 00h
-    call imprimir_menu
-eleccion_1:
-    CHECK_KEY 31h, one
-    CHECK_KEY 32h, two
-    CHECK_KEY 86h, menu
-    JMP eleccion_1
-one:   
-    MOV game_mode,1
-    CALL SINGLE_PLAYER_SCREEN 
-    MOV AX, start_secs
-    MOV current_secs, AX
-    MOV AH, 2Ch
-    INT 21h
-    MOV prev_sec, DH
-    ; Mostrar tiempo inicial
-    MOV AX, current_secs
-    CALL CONVERT_TO_STRING
-    PRINT_STRING 28, 72, str_seg, 6  
-    DRAW_FILLED_BOX  250,100,100,250,00H
-    DRAW_FILLED_BOX  PADDLE_LEFT_X,PADDLE_MID,10,40,0FH
-    DRAW_FILLED_BOX  PADDLE_RIGHT_X,PADDLE_MID,10,40,0FH
-    MOV ball_dx, 2       ; Velocidad horizontal
-    MOV ball_dy, 1       ; Velocidad vertical
-    CALL DRAW_BALL       ; Dibujar bola inicial
-    JMP JUEGO
-two:
-    MOV game_mode,2
+    CALL imprimir_menu
+    
+menu_loop:
+    ; ---- Deteccion de entrada del menu ----
+    SIMPLE_MENU_INPUT_HANDLER
+    
+    ; Procesar la accion detectada
+    CMP AH, 1           ; ENTER 
+    JE iniciar_juego
+    
+    CMP AH, 2           ; F12 
+    JE salir_programa
+    
+    ; Si no hay entrada valida, continuar en el menu
+    JMP menu_loop
+
+; ---- Saltos intermedios para evitar errores de rango ----
+iniciar_juego:
+    JMP start_game_directly
+
+salir_programa:
+    JMP salir
+    
+; ============================================================
+; INICIALIZACION DEL JUEGO
+; ============================================================
+start_game_directly:
+    ; ---- Transicion rapida y limpia al modo de juego ----
+    SIMPLE_FLUSH_KEYS                   ; Limpiar buffer de teclado
+    SIMPLE_FAST_TRANSITION 12h          ; Transicion suave al modo grafico
+    
+    ; Configurar modo de juego
+    MOV game_mode, 2
+    
+    ; Dibujar interfaz del juego
     CALL TWO_PLAYER_SCREEN  
+    
+    ; Inicializar timer
     MOV AX, start_secs
     MOV current_secs, AX
     MOV AH, 2Ch
     INT 21h
     MOV prev_sec, DH
+    
     ; Mostrar tiempo inicial
     MOV AX, current_secs
     CALL CONVERT_TO_STRING
-    PRINT_STRING 28, 72, str_seg, 6
-    DRAW_FILLED_BOX  250,100,100,250,00H
-    DRAW_FILLED_BOX  PADDLE_LEFT_X,PADDLE_MID,10,40,0FH
-    DRAW_FILLED_BOX  PADDLE_RIGHT_X,PADDLE_MID,10,40,0FH
-    MOV ball_dx, 3       ; Velocidad horizontal
-    MOV ball_dy, 1       ; Velocidad vertical
-    CALL DRAW_BALL       ; Dibujar bola inicial
-    JMP JUEGO
+    PRINT_STRING 1, 65, str_seg, 6
+    
+    ; Dibujar elementos del juego
+    CALL DRAW_GAME_ELEMENTS     ; Procedimiento para dibujar elementos
+    
+    ; Configurar bola inicial
+    CALL INITIALIZE_BALL        ; Procedimiento para inicializar bola
+    
+    JMP JUEGO           ; Ir al bucle principal del juego
+
+; ============================================================
+; BUCLE PRINCIPAL DEL JUEGO
+; ============================================================
     
 JUEGO:
-    MOV AH, 2Ch
-    INT 21h
-
-; Manejo de segundos
-    CMP DH, prev_sec
-    JE no_sec_change
-    MOV prev_sec, DH
-    DEC current_secs
-
-    ; Comprobar si el tiempo se agoto
+    ; ---- Manejo del temporizador usando macro ----
+    CALL UPDATE_GAME_TIMER
+    
+    ; Verificar si el tiempo se agot??
     CMP current_secs, 0
-    JG update_timer_display
-; Tiempo agotado
-    PRINT_STRING 15, 35, msg_done, 6
-    WAIT_KEY 0
-    JMP salir
+    JLE time_up_jump
 
-update_timer_display:
-    ; Convertir y mostrar el tiempo
-    MOV AX, current_secs
-    CALL CONVERT_TO_STRING
-    PRINT_STRING 28, 72, str_seg, 6
+    ; ---- Detecci??n de controles sin macro para evitar problemas ----
+    CALL HANDLE_GAME_INPUT
+    
+    ; Procesar entrada del juego basado en el resultado
+    CMP AH, 1           ; Jugador 1 arriba (W)
+    JE move_left_up
+    CMP AH, 2           ; Jugador 1 abajo (S)  
+    JE move_left_down
+    CMP AH, 3           ; Jugador 2 arriba (flecha arriba)
+    JE move_right_up
+    CMP AH, 4           ; Jugador 2 abajo (flecha abajo)
+    JE move_right_down
+    CMP AH, 5           ; ESC (pausa/men??)
+    JE pause_game
 
-no_sec_change:   ;ciclo principal
-    ; Detecci??n directa de teclas
-    MOV AH, 01h      ; Verificar si hay tecla
-    INT 16h
-    JZ no_keys       ; Si no hay tecla, saltar
+    ; ---- Actualizaci??n de la bola ----
+    CALL UPDATE_BALL_POSITION
+    CALL CHECK_BALL_COLLISIONS
+    CALL DRAW_GAME_STATE
     
-    MOV AH, 00h      ; Obtener la tecla
-    INT 16h
-    
-    CMP AL, 'w'      ; Tecla W - paddle izquierdo arriba
-    JNE skip_move_left_up
-    JMP move_left_up
-skip_move_left_up:
-
-    CMP AL, 'W'      ; Tambi??n aceptar may??scula
-    JNE skip_move_left_up2
-    JMP move_left_up
-skip_move_left_up2:
-
-    CMP AL, 's'      ; Tecla S - paddle izquierdo abajo
-    JNE skip_move_left_down
-    JMP move_left_down
-skip_move_left_down:
-
-    CMP AL, 'S'      ; Tambi??n aceptar may??scula
-    JNE skip_move_left_down2
-    JMP move_left_down
-skip_move_left_down2:
-
-    CMP AH, 48h      ; Tecla flecha arriba (verificar scancode)
-    JNE skip_move_right_up
-    JMP move_right_up
-skip_move_right_up:
-
-    CMP AH, 50h              ; Tecla flecha abajo (verificar scancode)
-    JNE continue_keys        ; Si no es flecha abajo, continuar
-    JMP move_right_down      ; Salto incondicional (mayor alcance)
-continue_keys:           ; Nueva etiqueta
-
-no_keys:
-    ; Resto del c??digo de la bola...
-    MOV [color], 0       ; Color negro (borrar)
-    CALL draw_filled_ball
-    
-    ; Actualizar posici?n X (con extensi?n de signo correcta)
-    MOV AL, ball_dx      ; Cargar direcci?n X en AL
-    CBW                  ; Extender signo de AL a AX
-    ADD ball_x, AX       ; Mover la bola en X
-    
-    ; Actualizar posici?n Y (con extensi?n de signo correcta)
-    MOV AL, ball_dy      ; Cargar direcci?n Y en AL
-    CBW                  ; Extender signo de AL a AX
-    ADD ball_y, AX       ; Mover la bola en Y
-    
-    ; Verificar l?mites horizontales (X)
-    MOV AX, AREA_LEFT
-    CMP ball_x, AX
-    JL invertir_x_L        ; Si X < l?mite izquierdo, invertir direcci?n X
-    
-    MOV AX, AREA_RIGHT
-    CMP ball_x, AX
-    JG invertir_x_R        ; Si X > l?mite derecho, invertir direcci?n X
-    
-    ; Verificar l?mites verticales (Y)
-    MOV AX, AREA_TOP
-    CMP ball_y, AX
-    JL invertir_y        ; Si Y < l?mite superior, invertir direcci?n Y
-    
-    MOV AX, AREA_BOTTOM
-    CMP ball_y, AX
-    JG invertir_y        ; Si Y > l?mite inferior, invertir direcci?n Y
-    
-    JMP actualizar_dibujo
-    
-invertir_x_L:
-    NEG ball_dx
-    ; Incrementar puntuaci?n P1
-    INC score_P1
-    ; Convertir y actualizar cadena
-    MOV AX, score_P1
-    LEA DI, str_score_P1
-    CALL CONVERT_SCORE
-    ; Restablecer posici?n
-    MOV ball_x, 320
-    MOV ball_y, 210
-    WAIT_KEY 0DH
-    JMP actualizar_dibujo
-    
-invertir_x_R:
-    invertir_x_R:
-    NEG ball_dx
-    ; Incrementar puntuaci?n PA/P2 seg?n modo
-    CMP game_mode, 1
-    JE incrementar_PA
-    INC score_P2
-    MOV AX, score_P2
-    LEA DI, str_score_P2
-    JMP actualizar_score
-    incrementar_PA:
-    INC score_PA
-    MOV AX, score_PA
-    LEA DI, str_score_PA
-actualizar_score:
-    CALL CONVERT_SCORE
-    ; Restablecer posici?n
-    MOV ball_x, 320
-    MOV ball_y, 210
-    WAIT_KEY 0DH
-    JMP actualizar_dibujo
-    
-invertir_y:
-    NEG ball_dy          ; Invertir direcci?n vertical
-    
-actualizar_dibujo:
-    ; Actualizar coordenadas de dibujo
-    MOV AX, ball_x
-    MOV center_x, AX
-    SUB AX, 3
-    MOV box_begin_x, AX
-    
-    MOV AX, ball_y
-    MOV center_y, AX
-    SUB AX, 3
-    MOV box_begin_y, AX
-    
-    MOV [color], 0Ch     ; Color rojo (dibujar)
-    CALL draw_filled_ball
-    PRINT_STRING 1, 4, P1, 6
-    PRINT_STRING 1, 4+3, str_score_P1, 6  ; Imprimir puntuaci??n P1 
-    
-    ; Agregar estas l??neas para mostrar el segundo marcador
-    CMP game_mode, 1
-    JE single_player_score
-    PRINT_STRING 1, 69, P2, 6
-    PRINT_STRING 1, 69+3, str_score_P2, 6  ; Modo 2 jugadores
-    JMP after_score
-single_player_score:
-    PRINT_STRING 1, 69, PA, 6
-    PRINT_STRING 1, 69+3, str_score_PA, 6  ; Modo 1 jugador
-after_score:
-    JMP after_paddle_move
-after_paddle_move:
     JMP JUEGO
+
+; Saltos intermedios para evitar problemas de rango
+time_up_jump:
+    JMP time_up_handler
+
+pause_game:
+    ; Implementar pausa si se desea
+    JMP JUEGO
+
+; ============================================================
+; MANEJADORES CERCANOS
+; ============================================================
+time_up_handler:
+    PRINT_STRING 15, 20, msg_done, 0Ch
+    MOV AH, 00h
+    INT 16h
+    JMP salir_jump2
+
+; ============================================================
+; CONTROLES DE PADDLES (optimizados con procedimientos)
+; ============================================================
 move_left_up:
-    MOV AX, PADDLE_TOP
-    CMP PADDLE_LEFT_Y, AX
-    JLE after_paddle_move_1  ; Cambiar a after_paddle_move_1
-    
-    ; Borrar paleta
-    DRAW_FILLED_BOX PADDLE_LEFT_X, PADDLE_LEFT_Y, 10, 40, 0
-    
-    ; Mover
-    MOV AX, paddle_speed
-    SUB PADDLE_LEFT_Y, AX
-    
-    ; Dibujar
-    DRAW_FILLED_BOX PADDLE_LEFT_X, PADDLE_LEFT_Y, 10, 40, 0Fh
-    JMP after_paddle_move
-    
-after_paddle_move_1:        ; Renombrar esta etiqueta
+    CALL MOVE_LEFT_PADDLE_UP
     JMP JUEGO
+
 move_left_down:
-    MOV AX, PADDLE_BOTTOM
-    SUB AX, 40
-    CMP PADDLE_LEFT_Y, AX
-    JGE after_paddle_move
-    
-    ; Borrar paleta
-    DRAW_FILLED_BOX PADDLE_LEFT_X, PADDLE_LEFT_Y, 10, 40, 0
-    
-    ; Mover
-    MOV AX, paddle_speed
-    ADD PADDLE_LEFT_Y, AX
-    
-    ; Dibujar
-    DRAW_FILLED_BOX PADDLE_LEFT_X, PADDLE_LEFT_Y, 10, 40, 0Fh
-    JMP after_paddle_move
-after_paddle_move_inter:
-    JMP after_paddle_move
+    CALL MOVE_LEFT_PADDLE_DOWN
+    JMP JUEGO
+
 move_right_up:
-    MOV AX, PADDLE_TOP
-    CMP PADDLE_RIGHT_Y, AX
-    JG not_at_top_limit     ; Invertir la condici??n
-    JMP after_paddle_move_1 ; Salto directo si est?? en l??mite
-not_at_top_limit:
-    ; Borrar paleta
-    DRAW_FILLED_BOX PADDLE_RIGHT_X, PADDLE_RIGHT_Y, 10, 40, 0
-    
-    ; Mover
-    MOV AX, paddle_speed
-    SUB PADDLE_RIGHT_Y, AX
-    
-    ; Dibujar
-    DRAW_FILLED_BOX PADDLE_RIGHT_X, PADDLE_RIGHT_Y, 10, 40, 0Fh
-    JMP after_paddle_move
+    CALL MOVE_RIGHT_PADDLE_UP
+    JMP JUEGO
 
 move_right_down:
-    MOV AX, PADDLE_BOTTOM
-    SUB AX, 40
-    CMP PADDLE_RIGHT_Y, AX
-    JGE after_paddle_move_2
-    
-    ; Borrar paleta
-    DRAW_FILLED_BOX PADDLE_RIGHT_X, PADDLE_RIGHT_Y, 10, 40, 0
-    
-    ; Mover
-    MOV AX, paddle_speed
-    ADD PADDLE_RIGHT_Y, AX
-    
-    ; Dibujar
-    DRAW_FILLED_BOX PADDLE_RIGHT_X, PADDLE_RIGHT_Y, 10, 40, 0Fh
-    JMP after_paddle_move
-
-after_paddle_move_2:
+    CALL MOVE_RIGHT_PADDLE_DOWN
     JMP JUEGO
+
+; ============================================================
+; SALIDA DEL PROGRAMA
+; ============================================================
+salir_jump2:
+    JMP salir
+
 salir:
-    WAIT_KEY 07                     ;espera la tecla f12 para salir    
-    SET_VIDEO_MODE 12h
-    SET_BACKGROUND_COLOR_12H 0      ;vuelve a colocar la pantalla en negro
-    
+    SIMPLE_SAFE_EXIT    ; Salida segura usando macro simplificada
     MOV AH, 4Ch         
     INT 21h
 MAIN ENDP
 
-SINGLE_PLAYER_SCREEN PROC
-
-    ;PRINT_STRING 1,31,MSG,6
-    DRAW_BOX 10,10,620,460,10
-    DRAW_BOX 30,40,580,400,10
-    PRINT_STRING 28,4,salida,6
-    PRINT_STRING 28,63,Time,6
-    PRINT_STRING 28,72,str_seg,6
-    PRINT_STRING 1,4,P1,6
-    PRINT_STRING 1,69,PA,6
-    ret
-    
-SINGLE_PLAYER_SCREEN ENDP
-
+; ============================================================
+; PROCEDIMIENTOS DEL JUEGO
+; ============================================================
 
 TWO_PLAYER_SCREEN PROC
-
-    ;PRINT_STRING 1,31,MSG,6
-    DRAW_BOX 10,10,620,460,10
-    DRAW_BOX 30,40,580,400,10
-    PRINT_STRING 28,4,salida,6
-    PRINT_STRING 28,63,Time,6
-    PRINT_STRING 28,72,str_seg,6
-    PRINT_STRING 1,4,P1,6
-    PRINT_STRING 1,69,P2,6
-    ret
+    ; Dibujar interfaz del juego con posicionamiento correcto
+    DRAW_BOX 30,30,580,420,0Fh        ; Marco exterior del juego
+    DRAW_BOX 35,35,570,410,0Ah        ; Marco interior verde
     
+    ; Informaci??n del juego en la parte superior
+    PRINT_STRING 2, 2, P1, 0Eh            ; Etiqueta jugador 1
+    PRINT_STRING 2, 5, str_score_P1, 0Eh  ; Score P1
+    PRINT_STRING 2, 70, P2, 0Eh           ; Etiqueta jugador 2  
+    PRINT_STRING 2, 73, str_score_P2, 0Eh ; Score P2
+    PRINT_STRING 1, 30, Time, 0Ch         ; Etiqueta de tiempo
+    PRINT_STRING 1, 38, str_seg, 0Ch      ; Tiempo
+    
+    ; Instrucciones en la parte inferior
+    PRINT_STRING 28, 25, salida, 0Bh       ; Instrucciones de salida
+    
+    RET
 TWO_PLAYER_SCREEN ENDP
+
+; ============================================================
+; PROCEDIMIENTOS GR??FICOS
+; ============================================================
 
 put_pixel PROC
     PUSH BX 
@@ -483,55 +329,70 @@ draw_octants PROC
 draw_octants ENDP
 
 DRAW_BALL PROC
+    PUSH AX
     MOV [color], 0Ch      ; Color rojo
     CALL draw_filled_ball
+    POP AX
     RET
 DRAW_BALL ENDP
     
 draw_filled_ball PROC
+    PUSH AX
     DRAW_FILLED_BOX box_begin_x, box_begin_y, 7, 7, [color]
     CALL draw_circle
+    POP AX
     RET
 draw_filled_ball ENDP
 
 
 draw_paddle_left PROC
-
-   DRAW_FILLED_BOX  PADDLE_LEFT_X,PADDLE_MID,10,40,0FH
-
-RET
+    DRAW_FILLED_BOX  PADDLE_LEFT_X,PADDLE_MID,10,40,0FH
+    RET
 draw_paddle_left ENDP
 
 draw_paddle_right PROC
-
-   DRAW_FILLED_BOX  PADDLE_RIGHT_X,PADDLE_MID,10,40,0FH
-
-RET
+    DRAW_FILLED_BOX  PADDLE_RIGHT_X,PADDLE_MID,10,40,0FH
+    RET
 draw_paddle_right ENDP
 
+; ============================================================
+; PROCEDIMIENTOS DE INTERFAZ
+; ============================================================
+
 imprimir_menu PROC
-
-    PRINT_STRING 7 ,33,one_player,6
-    PRINT_STRING 14,32,two_player,6
-    PRINT_STRING 21,33,salida,6
-
-RET
+    ; Limpiar ??rea espec??fica del men??
+    DRAW_FILLED_BOX 80, 250, 480, 180, 00h
+    
+    ; Marco decorativo principal
+    DRAW_BOX 90, 260, 460, 160, 0Fh        ; Marco blanco exterior
+    DRAW_FILLED_BOX 95, 265, 450, 150, 01h ; Fondo azul oscuro
+    DRAW_BOX 100, 270, 440, 140, 0Eh       ; Marco amarillo interior
+    
+    
+    PRINT_STRING 10, 34, menu_title, 0Fh
+    
+    ; Instrucciones principales - espaciado correcto
+    PRINT_STRING 13, 26, start_game, 0Eh    ; Amarillo brillante
+    PRINT_STRING 15, 30, salida, 0Ch        ; Rojo brillante
+    
+    ; Seccion de controles - mejor posicionamiento
+    PRINT_STRING 18, 34, controls, 0Ah      ; Verde
+    PRINT_STRING 20, 33, player1_ctrl, 0Bh  ; Cyan claro
+    PRINT_STRING 21, 33, player2_ctrl, 0Bh  ; Cyan claro
+    
+    ; Esquinas decorativas - posiciones ajustadas
+    DRAW_FILLED_BOX 90, 260, 8, 8, 0Ch      ; Esquina superior izquierda
+    DRAW_FILLED_BOX 542, 260, 8, 8, 0Ch     ; Esquina superior derecha
+    DRAW_FILLED_BOX 90, 412, 8, 8, 0Ch      ; Esquina inferior izquierda
+    DRAW_FILLED_BOX 542, 412, 8, 8, 0Ch     ; Esquina inferior derecha
+    
+    RET
 imprimir_menu ENDP
 
-imprimir_menu_sec PROC
 
-    PRINT_STRING 14,20,saved_game,6
-    PRINT_STRING 18,20,new_game,6
-
-RET
-imprimir_menu_sec ENDP
-
-detectar_colision PROC ;top 40, bottom 440
-
-    ;invertir la velocidad que llega al limite
-
-RET
-detectar_colision ENDP
+; ============================================================
+; PROCEDIMIENTOS DE CONVERSION
+; ============================================================
 
 CONVERT_TO_STRING PROC
     PUSH AX BX CX DX SI DI
@@ -552,7 +413,7 @@ convert_loop:
     RET
 CONVERT_TO_STRING ENDP
 
-; Convierte n?mero en AX a cadena de 4 d?gitos en DI
+
 CONVERT_SCORE PROC
     PUSH BX CX DX SI DI
     ADD DI, 3            ; Empezar desde el ?ltimo d?gito
@@ -569,50 +430,598 @@ convert_loop_1:
     RET
 CONVERT_SCORE ENDP
 
-imprimir_titulo PROC
-    ;P
-    DRAW_FILLED_BOX 24, 210, 16, 80, 0Ah
-    DRAW_FILLED_BOX 56, 210, 16, 48, 0Ah
-    DRAW_FILLED_BOX 40, 210, 16, 16, 0Ah
-    DRAW_FILLED_BOX 40, 242, 16, 16, 0Ah
-    ;I
-    DRAW_FILLED_BOX 88, 210, 16, 80, 0Ah
-    ;N
-    DRAW_FILLED_BOX 120, 210, 16, 80, 0Ah
-    DRAW_FILLED_BOX 168, 210, 16, 80, 0Ah
-    DRAW_FILLED_BOX 136, 226, 16, 32, 0Ah
-    DRAW_FILLED_BOX 152, 258, 16, 16, 0Ah
-    ;G
-    DRAW_FILLED_BOX 200, 210, 16, 80, 0Ah
-    DRAW_FILLED_BOX 216, 210, 48, 16, 0Ah
-    DRAW_FILLED_BOX 216, 274, 48, 16, 0Ah
-    DRAW_FILLED_BOX 248, 242, 16, 32, 0Ah
-    DRAW_FILLED_BOX 232, 242, 16, 16, 0Ah
-    ;-
-    DRAW_FILLED_BOX 280, 242, 48, 16, 0Ah
-    ;P
-    DRAW_FILLED_BOX 344, 210, 16, 80, 0Ah
-    DRAW_FILLED_BOX 376, 210, 16, 48, 0Ah
-    DRAW_FILLED_BOX 360, 210, 16, 16, 0Ah
-    DRAW_FILLED_BOX 360, 242, 16, 16, 0Ah
-    ;O
-    DRAW_FILLED_BOX 408, 210, 16, 80, 0Ah
-    DRAW_FILLED_BOX 440, 210, 16, 80, 0Ah
-    DRAW_FILLED_BOX 424, 210, 16, 16, 0Ah
-    DRAW_FILLED_BOX 424, 274, 16, 16, 0Ah
-    ;N
-    DRAW_FILLED_BOX 472, 210, 16, 80, 0Ah
-    DRAW_FILLED_BOX 520, 210, 16, 80, 0Ah
-    DRAW_FILLED_BOX 488, 226, 16, 32, 0Ah
-    DRAW_FILLED_BOX 504, 258, 16, 16, 0Ah
-    ;G
-    DRAW_FILLED_BOX 552, 210, 16, 80, 0Ah
-    DRAW_FILLED_BOX 568, 210, 48, 16, 0Ah
-    DRAW_FILLED_BOX 568, 274, 48, 16, 0Ah
-    DRAW_FILLED_BOX 600, 242, 16, 32, 0Ah
-    DRAW_FILLED_BOX 584, 242, 16, 16, 0Ah
+; ============================================================
+; PROCEDIMIENTO DEL TITULO
+; ============================================================
 
-RET
+imprimir_titulo PROC
+    ; T??tulo "PING-PONG" centrado y m??s compacto
+    ;P
+    DRAW_FILLED_BOX 100, 80, 12, 60, 0Ah
+    DRAW_FILLED_BOX 124, 80, 12, 36, 0Ah
+    DRAW_FILLED_BOX 112, 80, 12, 12, 0Ah
+    DRAW_FILLED_BOX 112, 104, 12, 12, 0Ah
+    ;I
+    DRAW_FILLED_BOX 148, 80, 12, 60, 0Ah
+    ;N
+    DRAW_FILLED_BOX 172, 80, 12, 60, 0Ah
+    DRAW_FILLED_BOX 208, 80, 12, 60, 0Ah
+    DRAW_FILLED_BOX 184, 92, 12, 24, 0Ah
+    DRAW_FILLED_BOX 196, 116, 12, 12, 0Ah
+    ;G
+    DRAW_FILLED_BOX 232, 80, 12, 60, 0Ah
+    DRAW_FILLED_BOX 244, 80, 36, 12, 0Ah
+    DRAW_FILLED_BOX 244, 128, 36, 12, 0Ah
+    DRAW_FILLED_BOX 268, 104, 12, 24, 0Ah
+    DRAW_FILLED_BOX 256, 104, 12, 12, 0Ah
+    ;-
+    DRAW_FILLED_BOX 292, 104, 36, 12, 0Ah
+    ;P
+    DRAW_FILLED_BOX 340, 80, 12, 60, 0Ah
+    DRAW_FILLED_BOX 364, 80, 12, 36, 0Ah
+    DRAW_FILLED_BOX 352, 80, 12, 12, 0Ah
+    DRAW_FILLED_BOX 352, 104, 12, 12, 0Ah
+    ;O
+    DRAW_FILLED_BOX 388, 80, 12, 60, 0Ah
+    DRAW_FILLED_BOX 412, 80, 12, 60, 0Ah
+    DRAW_FILLED_BOX 400, 80, 12, 12, 0Ah
+    DRAW_FILLED_BOX 400, 128, 12, 12, 0Ah
+    ;N
+    DRAW_FILLED_BOX 436, 80, 12, 60, 0Ah
+    DRAW_FILLED_BOX 472, 80, 12, 60, 0Ah
+    DRAW_FILLED_BOX 448, 92, 12, 24, 0Ah
+    DRAW_FILLED_BOX 460, 116, 12, 12, 0Ah
+    ;G
+    DRAW_FILLED_BOX 496, 80, 12, 60, 0Ah
+    DRAW_FILLED_BOX 508, 80, 36, 12, 0Ah
+    DRAW_FILLED_BOX 508, 128, 36, 12, 0Ah
+    DRAW_FILLED_BOX 532, 104, 12, 24, 0Ah
+    DRAW_FILLED_BOX 520, 104, 12, 12, 0Ah
+    RET
 imprimir_titulo ENDP
+
+; ============================================================
+; PROCEDIMIENTOS DE L??GICA DE JUEGO
+; ============================================================
+
+UPDATE_GAME_TIMER PROC
+    PUSH AX
+    PUSH DX
+    
+    ; Obtener tiempo del sistema directamente
+    MOV AH, 2Ch
+    INT 21h
+    
+    ; Verificar cambio de segundo
+    CMP DH, prev_sec
+    JE no_timer_change
+    MOV prev_sec, DH
+    DEC current_secs
+    
+    ; Actualizar display del tiempo
+    CMP current_secs, 0
+    JLE no_timer_change
+    
+    MOV AX, current_secs
+    CALL CONVERT_TO_STRING
+    PRINT_STRING 1, 38, str_seg, 0Ch
+    
+no_timer_change:
+    POP DX
+    POP AX
+    RET
+UPDATE_GAME_TIMER ENDP
+
+INITIALIZE_BALL PROC
+    PUSH AX
+    
+    ; Configurar velocidad inicial (muy lenta para mejor jugabilidad)
+    MOV ball_dx, 1       ; Velocidad horizontal muy reducida
+    MOV ball_dy, 1       ; Velocidad vertical
+    
+    ; Posici??n inicial central
+    MOV ball_x, 320
+    MOV ball_y, 210
+    
+    ; Dibujar bola inicial
+    CALL DRAW_BALL
+    
+    POP AX
+    RET
+INITIALIZE_BALL ENDP
+
+DRAW_GAME_ELEMENTS PROC
+    PUSH AX
+    
+    ; L??nea central del campo
+    DRAW_FILLED_BOX 318, 50, 4, 380, 0Fh
+    
+    ; Paddles iniciales usando posiciones din??micas centradas
+    DRAW_FILLED_BOX PADDLE_LEFT_X, PADDLE_LEFT_Y, 10, 40, 0FH
+    DRAW_FILLED_BOX PADDLE_RIGHT_X, PADDLE_RIGHT_Y, 10, 40, 0FH
+    
+    POP AX
+    RET
+DRAW_GAME_ELEMENTS ENDP
+
+UPDATE_BALL_POSITION PROC
+    PUSH AX
+    
+    ; Borrar bola actual
+    MOV [color], 0
+    CALL draw_filled_ball
+    
+    ; Actualizar posici??n X
+    MOV AL, ball_dx
+    CBW
+    ADD ball_x, AX
+    
+    ; Actualizar posici??n Y  
+    MOV AL, ball_dy
+    CBW
+    ADD ball_y, AX
+    
+    POP AX
+    RET
+UPDATE_BALL_POSITION ENDP
+
+CHECK_BALL_COLLISIONS PROC
+    PUSH AX
+    PUSH BX
+    PUSH CX
+    PUSH DX
+    
+    ; Verificar colisi??n con paddle izquierdo
+    MOV AX, ball_x
+    CMP AX, 55              ; Posici??n X del paddle izquierdo + ancho + margen
+    JGE check_right_paddle
+    
+    ; Verificar si la pelota est?? en el rango Y del paddle izquierdo
+    MOV BX, ball_y
+    MOV CX, PADDLE_LEFT_Y
+    SUB CX, 5               ; Margen superior
+    CMP BX, CX
+    JL check_right_paddle   ; Por encima del paddle
+    
+    MOV CX, PADDLE_LEFT_Y
+    ADD CX, 45              ; Altura del paddle + margen inferior
+    CMP BX, CX
+    JG check_right_paddle   ; Por debajo del paddle
+    
+    ; Colisi??n detectada con paddle izquierdo
+    CMP ball_dx, 0
+    JGE check_right_paddle  ; Solo rebotar si va hacia la izquierda
+    
+    ; Calcular ??ngulo de rebote basado en d??nde golpea
+    CALL CALCULATE_BOUNCE_ANGLE_LEFT
+    MOV ball_x, 56          ; Posicionar pelota fuera del paddle
+    JMP check_vertical_bounds
+
+check_right_paddle:
+    ; Verificar colisi??n con paddle derecho
+    MOV AX, ball_x
+    CMP AX, 585             ; Posici??n X del paddle derecho - margen
+    JLE check_score_bounds
+    
+    ; Verificar si la pelota est?? en el rango Y del paddle derecho
+    MOV BX, ball_y
+    MOV CX, PADDLE_RIGHT_Y
+    SUB CX, 5               ; Margen superior
+    CMP BX, CX
+    JL check_score_bounds   ; Por encima del paddle
+    
+    MOV CX, PADDLE_RIGHT_Y
+    ADD CX, 45              ; Altura del paddle + margen inferior
+    CMP BX, CX
+    JG check_score_bounds   ; Por debajo del paddle
+    
+    ; Colisi??n detectada con paddle derecho
+    CMP ball_dx, 0
+    JLE check_score_bounds  ; Solo rebotar si va hacia la derecha
+    
+    ; Calcular ??ngulo de rebote basado en d??nde golpea
+    CALL CALCULATE_BOUNCE_ANGLE_RIGHT
+    MOV ball_x, 584         ; Posicionar pelota fuera del paddle
+    JMP check_vertical_bounds
+
+check_score_bounds:
+    ; Verificar l??mites horizontales para puntuaci??n
+    MOV AX, AREA_LEFT
+    CMP ball_x, AX
+    JL point_for_p2
+    
+    MOV AX, AREA_RIGHT
+    CMP ball_x, AX
+    JG point_for_p1
+    
+check_vertical_bounds:
+    ; Verificar l??mites verticales (rebote en bordes superior e inferior)
+    MOV AX, AREA_TOP
+    ADD AX, 5               ; Margen para el radio de la pelota
+    CMP ball_y, AX
+    JL vertical_bounce
+    
+    MOV AX, AREA_BOTTOM
+    SUB AX, 5               ; Margen para el radio de la pelota
+    CMP ball_y, AX
+    JG vertical_bounce
+    
+    JMP collision_end
+
+point_for_p1:
+    INC score_P1
+    MOV AX, score_P1
+    LEA DI, str_score_P1
+    CALL CONVERT_SCORE
+    CALL RESET_BALL_POSITION
+    JMP collision_end
+
+point_for_p2:
+    INC score_P2
+    MOV AX, score_P2
+    LEA DI, str_score_P2
+    CALL CONVERT_SCORE
+    CALL RESET_BALL_POSITION
+    JMP collision_end
+
+vertical_bounce:
+    NEG ball_dy
+    ; Asegurar que la pelota est?? dentro de los l??mites
+    MOV AX, AREA_TOP
+    ADD AX, 6
+    CMP ball_y, AX
+    JGE check_bottom_bound
+    MOV ball_y, AX
+    JMP collision_end
+    
+check_bottom_bound:
+    MOV AX, AREA_BOTTOM
+    SUB AX, 6
+    CMP ball_y, AX
+    JLE collision_end
+    MOV ball_y, AX
+
+collision_end:
+    POP DX
+    POP CX
+    POP BX
+    POP AX
+    RET
+CHECK_BALL_COLLISIONS ENDP
+
+RESET_BALL_POSITION PROC
+    PUSH AX
+    PUSH DX
+    
+    ; Restablecer posici??n central
+    MOV ball_x, 320
+    MOV ball_y, 210
+    
+    ; Obtener tiempo actual para generar direcci??n semi-aleatoria
+    MOV AH, 2Ch
+    INT 21h                 ; DL = cent??simas de segundo
+    
+    ; Usar las cent??simas para determinar direcci??n inicial
+    TEST DL, 01h            ; Verificar bit menos significativo
+    JZ reset_left
+    
+    ; Direcci??n hacia la derecha (velocidad muy reducida)
+    MOV ball_dx, 1
+    JMP set_vertical_dir
+    
+reset_left:
+    ; Direcci??n hacia la izquierda (velocidad muy reducida)
+    MOV ball_dx, -1
+    
+set_vertical_dir:
+    ; Determinar direcci??n vertical basada en otro bit
+    TEST DL, 02h
+    JZ reset_up
+    MOV ball_dy, 1          ; Hacia abajo
+    JMP reset_end
+    
+reset_up:
+    MOV ball_dy, -1         ; Hacia arriba
+    
+reset_end:
+    ; Peque??a pausa antes de continuar
+    MOV CX, 8000h
+reset_delay:
+    LOOP reset_delay
+    
+    POP DX
+    POP AX
+    RET
+RESET_BALL_POSITION ENDP
+
+DRAW_GAME_STATE PROC
+    PUSH AX
+    
+    ; Actualizar coordenadas de dibujo de la bola
+    MOV AX, ball_x
+    MOV center_x, AX
+    SUB AX, 3
+    MOV box_begin_x, AX
+    
+    MOV AX, ball_y
+    MOV center_y, AX
+    SUB AX, 3
+    MOV box_begin_y, AX
+    
+    ; Dibujar bola en nueva posici??n
+    MOV [color], 0Ch
+    CALL draw_filled_ball
+    
+    ; Actualizar marcadores
+    PRINT_STRING 2, 2, P1, 0Eh
+    PRINT_STRING 2, 5, str_score_P1, 0Eh
+    PRINT_STRING 2, 70, P2, 0Eh
+    PRINT_STRING 2, 73, str_score_P2, 0Eh
+    
+    POP AX
+    RET
+DRAW_GAME_STATE ENDP
+
+; ============================================================
+; PROCEDIMIENTOS DE CONTROL DE PADDLES
+; ============================================================
+
+MOVE_LEFT_PADDLE_UP PROC
+    PUSH AX
+    
+    ; Verificar l??mite superior (borde verde interno)
+    MOV AX, PADDLE_TOP
+    CMP PADDLE_LEFT_Y, AX
+    JLE skip_left_up_move
+    
+    ; Borrar, mover y redibujar
+    DRAW_FILLED_BOX PADDLE_LEFT_X, PADDLE_LEFT_Y, 10, 40, 0
+    MOV AX, paddle_speed
+    SUB PADDLE_LEFT_Y, AX
+    
+    ; Verificar que no se pase del l??mite despu??s del movimiento
+    MOV AX, PADDLE_TOP
+    CMP PADDLE_LEFT_Y, AX
+    JGE draw_left_paddle_up
+    MOV PADDLE_LEFT_Y, AX   ; Ajustar al l??mite exacto
+    
+draw_left_paddle_up:
+    DRAW_FILLED_BOX PADDLE_LEFT_X, PADDLE_LEFT_Y, 10, 40, 0Fh
+    
+skip_left_up_move:
+    POP AX
+    RET
+MOVE_LEFT_PADDLE_UP ENDP
+
+MOVE_LEFT_PADDLE_DOWN PROC
+    PUSH AX
+    
+    ; Verificar l??mite inferior (borde verde interno menos altura del paddle)
+    MOV AX, PADDLE_BOTTOM
+    SUB AX, 40              ; Altura del paddle
+    CMP PADDLE_LEFT_Y, AX
+    JGE skip_left_down_move
+    
+    ; Borrar, mover y redibujar
+    DRAW_FILLED_BOX PADDLE_LEFT_X, PADDLE_LEFT_Y, 10, 40, 0
+    MOV AX, paddle_speed
+    ADD PADDLE_LEFT_Y, AX
+    
+    ; Verificar que no se pase del l??mite despu??s del movimiento
+    MOV AX, PADDLE_BOTTOM
+    SUB AX, 40              ; Altura del paddle
+    CMP PADDLE_LEFT_Y, AX
+    JLE draw_left_paddle_down
+    MOV PADDLE_LEFT_Y, AX   ; Ajustar al l??mite exacto
+    
+draw_left_paddle_down:
+    DRAW_FILLED_BOX PADDLE_LEFT_X, PADDLE_LEFT_Y, 10, 40, 0Fh
+    
+skip_left_down_move:
+    POP AX
+    RET
+MOVE_LEFT_PADDLE_DOWN ENDP
+
+MOVE_RIGHT_PADDLE_UP PROC
+    PUSH AX
+    
+    ; Verificar l??mite superior (borde verde interno)
+    MOV AX, PADDLE_TOP
+    CMP PADDLE_RIGHT_Y, AX
+    JLE skip_right_up_move
+    
+    ; Borrar, mover y redibujar
+    DRAW_FILLED_BOX PADDLE_RIGHT_X, PADDLE_RIGHT_Y, 10, 40, 0
+    MOV AX, paddle_speed
+    SUB PADDLE_RIGHT_Y, AX
+    
+    ; Verificar que no se pase del l??mite despu??s del movimiento
+    MOV AX, PADDLE_TOP
+    CMP PADDLE_RIGHT_Y, AX
+    JGE draw_right_paddle_up
+    MOV PADDLE_RIGHT_Y, AX  ; Ajustar al l??mite exacto
+    
+draw_right_paddle_up:
+    DRAW_FILLED_BOX PADDLE_RIGHT_X, PADDLE_RIGHT_Y, 10, 40, 0Fh
+    
+skip_right_up_move:
+    POP AX
+    RET
+MOVE_RIGHT_PADDLE_UP ENDP
+
+MOVE_RIGHT_PADDLE_DOWN PROC
+    PUSH AX
+    
+    ; Verificar l??mite inferior (borde verde interno menos altura del paddle)
+    MOV AX, PADDLE_BOTTOM
+    SUB AX, 40              ; Altura del paddle
+    CMP PADDLE_RIGHT_Y, AX
+    JGE skip_right_down_move
+    
+    ; Borrar, mover y redibujar
+    DRAW_FILLED_BOX PADDLE_RIGHT_X, PADDLE_RIGHT_Y, 10, 40, 0
+    MOV AX, paddle_speed
+    ADD PADDLE_RIGHT_Y, AX
+    
+    ; Verificar que no se pase del l??mite despu??s del movimiento
+    MOV AX, PADDLE_BOTTOM
+    SUB AX, 40              ; Altura del paddle
+    CMP PADDLE_RIGHT_Y, AX
+    JLE draw_right_paddle_down
+    MOV PADDLE_RIGHT_Y, AX  ; Ajustar al l??mite exacto
+    
+draw_right_paddle_down:
+    DRAW_FILLED_BOX PADDLE_RIGHT_X, PADDLE_RIGHT_Y, 10, 40, 0Fh
+    
+skip_right_down_move:
+    POP AX
+    RET
+MOVE_RIGHT_PADDLE_DOWN ENDP
+
+; ============================================================
+; PROCEDIMIENTO DE MANEJO DE ENTRADA
+; ============================================================
+
+HANDLE_GAME_INPUT PROC
+    PUSH BX
+    PUSH CX
+    PUSH DX
+    
+    ; Verificar si hay tecla en el buffer
+    MOV AH, 01h
+    INT 16h
+    JZ no_game_input
+    
+    ; Leer tecla
+    MOV AH, 00h
+    INT 16h
+    
+    ; Verificar teclas WASD
+    CMP AL, 'w'
+    JE w_key_pressed
+    CMP AL, 'W'
+    JE w_key_pressed
+    CMP AL, 's'
+    JE s_key_pressed
+    CMP AL, 'S'
+    JE s_key_pressed
+    
+    ; Verificar flechas
+    CMP AH, 48h         ; Flecha arriba
+    JE up_arrow_pressed
+    CMP AH, 50h         ; Flecha abajo
+    JE down_arrow_pressed
+    
+    ; Verificar ESC
+    CMP AL, 1Bh
+    JE esc_pressed
+    
+    JMP no_game_input
+
+w_key_pressed:
+    MOV AH, 1
+    JMP exit_game_input
+    
+s_key_pressed:
+    MOV AH, 2
+    JMP exit_game_input
+    
+up_arrow_pressed:
+    MOV AH, 3
+    JMP exit_game_input
+    
+down_arrow_pressed:
+    MOV AH, 4
+    JMP exit_game_input
+    
+esc_pressed:
+    MOV AH, 5
+    JMP exit_game_input
+
+no_game_input:
+    MOV AH, 0
+
+exit_game_input:
+    POP DX
+    POP CX
+    POP BX
+    RET
+HANDLE_GAME_INPUT ENDP
+
+; ============================================================
+; PROCEDIMIENTOS DE C??LCULO DE ??NGULO DE REBOTE
+; ============================================================
+
+CALCULATE_BOUNCE_ANGLE_LEFT PROC
+    PUSH AX
+    PUSH BX
+    PUSH CX
+    
+    ; Calcular posici??n relativa en el paddle (0-40 p??xeles)
+    MOV AX, ball_y
+    SUB AX, PADDLE_LEFT_Y
+    
+    ; Determinar zona de impacto y ajustar velocidad
+    CMP AX, 10              ; Zona superior (rebote hacia arriba)
+    JL bounce_up_left
+    CMP AX, 30              ; Zona inferior (rebote hacia abajo)
+    JG bounce_down_left
+    
+    ; Zona central - rebote recto
+    NEG ball_dx             ; Cambiar direcci??n horizontal
+    ; Mantener velocidad vertical actual o ligeramente modificada
+    JMP end_bounce_left
+    
+bounce_up_left:
+    NEG ball_dx             ; Cambiar direcci??n horizontal
+    MOV ball_dy, -1         ; Velocidad vertical hacia arriba (reducida)
+    JMP end_bounce_left
+    
+bounce_down_left:
+    NEG ball_dx             ; Cambiar direcci??n horizontal
+    MOV ball_dy, 1          ; Velocidad vertical hacia abajo (reducida)
+    
+end_bounce_left:
+    POP CX
+    POP BX
+    POP AX
+    RET
+CALCULATE_BOUNCE_ANGLE_LEFT ENDP
+
+CALCULATE_BOUNCE_ANGLE_RIGHT PROC
+    PUSH AX
+    PUSH BX
+    PUSH CX
+    
+    ; Calcular posici??n relativa en el paddle (0-40 p??xeles)
+    MOV AX, ball_y
+    SUB AX, PADDLE_RIGHT_Y
+    
+    ; Determinar zona de impacto y ajustar velocidad
+    CMP AX, 10              ; Zona superior (rebote hacia arriba)
+    JL bounce_up_right
+    CMP AX, 30              ; Zona inferior (rebote hacia abajo)
+    JG bounce_down_right
+    
+    ; Zona central - rebote recto
+    NEG ball_dx             ; Cambiar direcci??n horizontal
+    ; Mantener velocidad vertical actual o ligeramente modificada
+    JMP end_bounce_right
+    
+bounce_up_right:
+    NEG ball_dx             ; Cambiar direcci??n horizontal
+    MOV ball_dy, -1         ; Velocidad vertical hacia arriba (reducida)
+    JMP end_bounce_right
+    
+bounce_down_right:
+    NEG ball_dx             ; Cambiar direcci??n horizontal
+    MOV ball_dy, 1          ; Velocidad vertical hacia abajo (reducida)
+    
+end_bounce_right:
+    POP CX
+    POP BX
+    POP AX
+    RET
+CALCULATE_BOUNCE_ANGLE_RIGHT ENDP
 
 END MAIN
